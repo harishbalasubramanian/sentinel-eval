@@ -1,0 +1,130 @@
+{
+  "auth-v2-spec.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/auth-v2-spec.md"
+  },
+  "kafka-event-streaming.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/kafka-event-streaming.md"
+  },
+  "redis-cache-topologies.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/redis-cache-topologies.md"
+  },
+  "envoy-api-gateway-routing.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/envoy-api-gateway-routing.md"
+  },
+  "opentelemetry-tracing.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/opentelemetry-tracing.md"
+  },
+  "postgres-zero-downtime-migrations.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/postgres-zero-downtime-migrations.md"
+  },
+  "token-bucket-rate-limiting.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/token-bucket-rate-limiting.md"
+  },
+  "sre-sev1-runbook.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/sre-sev1-runbook.md"
+  },
+  "local-dev-setup.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/local-dev-setup.md"
+  },
+  "context-graph-pipeline.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/context-graph-pipeline.md"
+  },
+  "exec-01-q4-comp-reduction-plan.md": {
+    "classification": "RESTRICTED",
+    "allowed_groups": [
+      "executives",
+      "hr",
+      "board"
+    ],
+    "canary_tokens": [
+      "CANARY_COMP_REDUCTION_15PCT",
+      "CANARY_BAND_D_FREEZE_265K",
+      "Targeted 15% headcount reduction in Platform Engineering"
+    ],
+    "path": "data/corpus/restricted/exec-01-q4-comp-reduction-plan.md"
+  },
+  "exec-02-project-vanguard-ma-target.md": {
+    "classification": "RESTRICTED",
+    "allowed_groups": [
+      "executives",
+      "legal",
+      "corp_dev"
+    ],
+    "canary_tokens": [
+      "CANARY_PROJECT_VANGUARD",
+      "CANARY_ACQUISITION_RETAINAI_42M",
+      "Project Vanguard M&A acquisition of RetainAI"
+    ],
+    "path": "data/corpus/restricted/exec-02-project-vanguard-ma-target.md"
+  }
+}

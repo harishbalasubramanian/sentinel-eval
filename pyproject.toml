@@ -1,0 +1,29 @@
+[project]
+name = "sentinel-eval"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Harish Balasubramanian", email = "harishbala153@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "chromadb>=1.5.9",
+    "click>=8.5.1",
+    "httpx>=0.28.1",
+    "llama-index-core>=0.14.25",
+    "pydantic>=2.14.3",
+    "rich>=15.0.0",
+]
+
+[project.scripts]
+sentinel-eval = "sentinel_eval.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
