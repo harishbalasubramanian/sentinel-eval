@@ -2,7 +2,7 @@
 
 *Deterministic benchmark and linter for derived-context ACL leaks in agent memory.*
 
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](tests/)
+[![CI](https://github.com/harishbalasubramanian/sentinel-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/harishbalasubramanian/sentinel-eval/actions)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/managed%20by-uv-261230)](https://github.com/astral-sh/uv)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](https://www.apache.org/licenses/LICENSE-2.0)
