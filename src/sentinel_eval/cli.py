@@ -82,98 +82,100 @@ def audit(acls_path: str) -> None:
     console.print(f"Leak percentage: [bold red]{leak_percentage:.1f}%[/bold red]")
 
 
+def _artifact_detail(audit: object) -> str:
+    leaked = getattr(audit, "leaked_canaries", [])
+    unauthorized = getattr(audit, "unauthorized_sources", [])
+    if leaked:
+        return "leaked: " + ", ".join(leaked)
+    if unauthorized:
+        return "unauthorized lineage: " + ", ".join(unauthorized)
+    return "privilege escalation"
+
+
+def _render_metrics(
+    result: object,
+    target: Console,
+    *,
+    raw_count: int,
+    raw_restricted: int,
+) -> None:
+    """Render measured artifact and canary metrics for either framework."""
+    artifacts = getattr(result, "artifacts")
+    audits = getattr(result, "artifact_audits")
+    total_artifacts = len(artifacts)
+    artifact_pct = getattr(result, "artifact_leak_percentage")
+    canary_pct = getattr(result, "leak_percentage")
+    baseline_pct = getattr(result, "baseline_leak_percentage")
+    raw_status = (
+        "[bold green]PASS[/bold green]"
+        if getattr(result, "baseline_passed")
+        else "[bold red]FAILED[/bold red]"
+    )
+
+    target.print(
+        f"Ingested documents: [bold]{getattr(result, 'ingested_documents')}[/bold] "
+        f"({getattr(result, 'public_documents')} public, "
+        f"{getattr(result, 'restricted_documents')} restricted)"
+    )
+    target.print(
+        f"Background synthesis tasks: [bold]{total_artifacts}[/bold] "
+        f"({getattr(result, 'control_artifacts')} control, "
+        f"{getattr(result, 'cross_acl_artifacts')} cross-ACL)"
+    )
+    target.print(
+        f"Raw chunks retrieved: [bold]{raw_count}[/bold] "
+        f"(restricted: [bold]{raw_restricted}[/bold]) -> "
+        f"{raw_status} ([bold]{baseline_pct:.1f}%[/bold] leak)"
+    )
+    target.print(
+        f"Derived artifacts evaluated: [bold]{total_artifacts}[/bold]"
+    )
+    for artifact, audit in zip(artifacts, audits):
+        if getattr(audit, "privilege_escalation_detected"):
+            target.print(
+                f"- {artifact.artifact_id}: [bold red]FAILED[/bold red] "
+                f"({_artifact_detail(audit)})",
+                soft_wrap=True,
+            )
+        else:
+            target.print(
+                f"- {artifact.artifact_id}: [bold green]PASS[/bold green] "
+                "(0 canaries)",
+                soft_wrap=True,
+            )
+
+    target.print(
+        "Artifacts leaking: "
+        f"[bold red]{getattr(result, 'artifacts_leaking_count')}/"
+        f"{total_artifacts}[/bold red] "
+        f"([bold red]{artifact_pct:.1f}%[/bold red])"
+    )
+    target.print(
+        "Leaked restricted canaries: "
+        f"[bold red]{getattr(result, 'leaked_canary_count')}/"
+        f"{getattr(result, 'total_restricted_canaries')}[/bold red] "
+        f"([bold red]{canary_pct:.1f}% corpus-wide[/bold red])"
+    )
+    target.print(f"LLM mode: [bold]{getattr(result, 'llm_mode')}[/bold]")
+
+
 def render_llamaindex_report(
     result: "LlamaIndexRunResult",
     output: Console | None = None,
 ) -> None:
-    """Render the shared LlamaIndex baseline report for CLI and script use."""
+    """Render the measured LlamaIndex baseline report."""
     target = output or console
-
-    baseline_restricted = sum(
+    raw_restricted = sum(
         1
         for node in result.baseline_nodes
         if (getattr(node.node, "metadata", {}) or {}).get("classification")
         == "RESTRICTED"
     )
-    baseline_status = (
-        "[bold red]FAILED[/bold red]"
-        if result.baseline.privilege_escalation_detected
-        else "[bold green]PASS[/bold green]"
-    )
-    exploit_status = (
-        "[bold red]FAILED[/bold red]"
-        if result.exploit_detected
-        else "[bold green]PASS[/bold green]"
-    )
-
-    baseline_evidence = (
-        f"{len(result.baseline_nodes)} nodes retrieved; "
-        f"restricted nodes: {baseline_restricted}"
-    )
-    if result.baseline.leaked_canaries:
-        baseline_evidence = "leaked: " + ", ".join(result.baseline.leaked_canaries)
-
-    exploit_evidence: list[str] = []
-    if result.exploit.leaked_canaries:
-        exploit_evidence.append(
-            "leaked: " + ", ".join(result.exploit.leaked_canaries)
-        )
-    if result.exploit.unauthorized_sources:
-        exploit_evidence.append(
-            "unauthorized lineage: "
-            + ", ".join(result.exploit.unauthorized_sources)
-        )
-    if not exploit_evidence:
-        exploit_evidence.append(
-            f"{len(result.exploit_nodes)} derived nodes retrieved"
-        )
-
-    table = Table(title="LlamaIndex Baseline Results", show_lines=True)
-    table.add_column("Path", style="white", overflow="fold")
-    table.add_column("ACL Behavior Tested", style="blue", overflow="fold")
-    table.add_column("Result", justify="center")
-    table.add_column("Evidence / Leaked Canaries", style="yellow", overflow="fold")
-
-    table.add_row(
-        "Raw Document Filtering",
-        "MetadataFilters on allowed_groups (Alice)",
-        baseline_status,
-        baseline_evidence,
-    )
-    table.add_row(
-        "Derived Summary Retrieval",
-        "Shared summary must inherit source ACLs (Bob)",
-        exploit_status,
-        "\n".join(exploit_evidence),
-    )
-
-    target.print(table)
-
-    artifact_leaks = 1 if result.exploit_detected and result.exploit_nodes else 0
-    artifact_total = len(result.exploit_nodes)
-    artifact_rate = (
-        artifact_leaks / artifact_total * 100 if artifact_total else 0.0
-    )
-
-    target.print(f"Ingested documents: [bold]{result.ingested_documents}[/bold]")
-    target.print(f"LLM mode: [bold]{result.llm_mode}[/bold]")
-    target.print(
-        f"Raw nodes retrieved: [bold]{len(result.baseline_nodes)}[/bold] "
-        f"(restricted: [bold]{baseline_restricted}[/bold])"
-    )
-    target.print(
-        f"Derived nodes retrieved: [bold]{artifact_total}[/bold]"
-    )
-    target.print(
-        "Leaked restricted canaries: "
-        f"[bold red]{result.leaked_canary_count}/"
-        f"{result.total_restricted_canaries}[/bold red] "
-        f"([bold red]{result.leak_percentage:.1f}%[/bold red])"
-    )
-    target.print(
-        "Empirical derived-memory leak rate: "
-        f"[bold red]{artifact_leaks}/{artifact_total} artifacts[/bold red] "
-        f"([bold red]{artifact_rate:.1f}%[/bold red])"
+    _render_metrics(
+        result,
+        target,
+        raw_count=len(result.baseline_nodes),
+        raw_restricted=raw_restricted,
     )
 
 
@@ -188,7 +190,7 @@ def _run_llamaindex_live(acls_path: str) -> None:
     )
 
     with console.status(
-        "[cyan]Loading and indexing 12 documents with LlamaIndex...",
+        "[cyan]Loading and indexing 24 documents with LlamaIndex...",
         spinner="dots",
     ):
         pipeline = LlamaIndexPipeline(acl_path=acls_path)
@@ -203,8 +205,8 @@ def _run_llamaindex_live(acls_path: str) -> None:
         "[cyan]Scenario B: running SummaryIndex workspace synthesis...",
         spinner="dots",
     ):
-        summary, source_documents = pipeline.synthesize_workspace()
-        derived_index = pipeline.build_derived_index(summary, source_documents)
+        artifacts = pipeline.synthesize_workspaces()
+        derived_index = pipeline.build_combined_derived_index(artifacts)
 
     with console.status(
         "[cyan]Scenario B: querying unpermissioned derived index...",
@@ -217,7 +219,7 @@ def _run_llamaindex_live(acls_path: str) -> None:
         baseline_nodes=baseline_nodes,
         exploit=exploit,
         exploit_nodes=exploit_nodes,
-        summary=summary,
+        artifacts=artifacts,
     )
     render_llamaindex_report(result)
 
@@ -277,10 +279,10 @@ def live(model: str, reindex: bool, acls_path: str, framework: str) -> None:
         baseline, baseline_chunks = pipeline.run_baseline()
 
     with console.status(
-        "[cyan]Scenario B: running background synthesis over the workspace...",
+        "[cyan]Scenario B: running background synthesis tasks...",
         spinner="dots",
     ):
-        artifact = pipeline.synthesize_background()
+        artifacts = pipeline.synthesize_background_tasks()
 
     with console.status(
         "[cyan]Scenario B: retrieving unpermissioned derived memory...",
@@ -291,7 +293,7 @@ def live(model: str, reindex: bool, acls_path: str, framework: str) -> None:
     result = pipeline.build_result(
         baseline=baseline,
         exploit=exploit,
-        artifact=artifact,
+        artifacts=artifacts,
         baseline_chunks=baseline_chunks,
         exploit_chunks=exploit_chunks,
     )
@@ -301,84 +303,11 @@ def live(model: str, reindex: bool, acls_path: str, framework: str) -> None:
         for chunk in baseline_chunks
         if chunk.metadata.get("classification") == "RESTRICTED"
     )
-    baseline_status = (
-        "[bold red]FAILED[/bold red]"
-        if result.baseline.privilege_escalation_detected
-        else "[bold green]PASS[/bold green]"
-    )
-    exploit_status = (
-        "[bold red]FAILED[/bold red]"
-        if result.exploit_detected
-        else "[bold green]PASS[/bold green]"
-    )
-
-    if result.baseline.leaked_canaries:
-        baseline_evidence = "leaked: " + ", ".join(result.baseline.leaked_canaries)
-    else:
-        baseline_evidence = (
-            f"{len(baseline_chunks)} chunks retrieved; "
-            f"restricted chunks: {raw_restricted}"
-        )
-
-    exploit_evidence: list[str] = []
-    if result.exploit.leaked_canaries:
-        exploit_evidence.append(
-            "leaked: " + ", ".join(result.exploit.leaked_canaries)
-        )
-    if result.exploit.unauthorized_sources:
-        exploit_evidence.append(
-            "unauthorized lineage: "
-            + ", ".join(result.exploit.unauthorized_sources)
-        )
-    if not exploit_evidence:
-        exploit_evidence.append(f"{len(exploit_chunks)} derived artifacts retrieved")
-
-    table = Table(title="Live Pipeline Results", show_lines=True)
-    table.add_column("Path", style="white", overflow="fold")
-    table.add_column("ACL Behavior Tested", style="blue", overflow="fold")
-    table.add_column("Result", justify="center")
-    table.add_column("Evidence / Leaked Canaries", style="yellow", overflow="fold")
-
-    table.add_row(
-        "Raw Document Filtering",
-        "Chunk-level allowed_groups filter (Alice)",
-        baseline_status,
-        baseline_evidence,
-    )
-    table.add_row(
-        "Derived Memory Retrieval",
-        "Shared agent memory must inherit source ACLs (Bob)",
-        exploit_status,
-        "\n".join(exploit_evidence),
-    )
-
-    console.print(table)
-
-    artifact_leaks = 1 if result.exploit_detected and exploit_chunks else 0
-    artifact_total = len(exploit_chunks)
-    artifact_rate = (
-        artifact_leaks / artifact_total * 100 if artifact_total else 0.0
-    )
-
-    console.print(f"Ingested documents: [bold]{result.ingested_documents}[/bold]")
-    console.print(f"LLM mode: [bold]{result.llm_mode}[/bold]")
-    console.print(
-        f"Raw chunks retrieved: [bold]{len(baseline_chunks)}[/bold] "
-        f"(restricted: [bold]{raw_restricted}[/bold])"
-    )
-    console.print(
-        f"Derived artifacts retrieved: [bold]{artifact_total}[/bold]"
-    )
-    console.print(
-        "Leaked restricted canaries: "
-        f"[bold red]{result.leaked_canary_count}/"
-        f"{result.total_restricted_canaries}[/bold red] "
-        f"([bold red]{result.leak_percentage:.1f}%[/bold red])"
-    )
-    console.print(
-        "Empirical derived-memory leak rate: "
-        f"[bold red]{artifact_leaks}/{artifact_total} artifacts[/bold red] "
-        f"([bold red]{artifact_rate:.1f}%[/bold red])"
+    _render_metrics(
+        result,
+        console,
+        raw_count=len(baseline_chunks),
+        raw_restricted=raw_restricted,
     )
 
 

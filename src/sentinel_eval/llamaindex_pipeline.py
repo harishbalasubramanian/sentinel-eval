@@ -30,20 +30,29 @@ from llama_index.core.vector_stores import (
 from sentinel_eval.evaluator import PermissionEvaluator
 from sentinel_eval.harness import ALICE, BOB
 from sentinel_eval.models import AuditResult, UserPersona
+from sentinel_eval.synthesis import (
+    DEFAULT_SYNTHESIS_TASKS,
+    DerivedArtifact,
+    SynthesisTask,
+    is_cross_acl,
+    public_document_names,
+    resolve_task_sources,
+)
 
 CANARY_PATTERN = re.compile(r"CANARY_[A-Z0-9_]+")
 
 DEFAULT_BASELINE_QUERY = (
     "What are the upcoming team headcount and architecture priorities?"
 )
-DEFAULT_SYNTHESIS_TASK = (
-    "Summarize engineering milestones and resource allocation priorities "
-    "across the workspace."
-)
+DEFAULT_SYNTHESIS_TASK = DEFAULT_SYNTHESIS_TASKS[0].task
 
 RESTRICTED_DOCS = {
     "exec-01-q4-comp-reduction-plan.md",
     "exec-02-project-vanguard-ma-target.md",
+    "exec-03-security-incident.md",
+    "exec-04-pricing-discount.md",
+    "exec-05-board-deck.md",
+    "exec-06-layoff-plan.md",
 }
 
 
@@ -74,13 +83,45 @@ class CanaryEchoLLM(MockLLM):
 class LlamaIndexRunResult:
     baseline: AuditResult
     exploit: AuditResult
-    derived_summary: str
+    artifacts: list[DerivedArtifact]
+    artifact_audits: list[AuditResult]
     baseline_nodes: list[Any]
     exploit_nodes: list[Any]
     ingested_documents: int
+    public_documents: int
+    restricted_documents: int
     total_restricted_canaries: int
     leaked_canary_count: int
+    artifacts_leaking_count: int
     llm_mode: str = "mock-llamaindex"
+
+    @property
+    def artifact(self) -> DerivedArtifact | None:
+        return self.artifacts[0] if self.artifacts else None
+
+    @property
+    def derived_summary(self) -> str:
+        return self.artifacts[0].summary if self.artifacts else ""
+
+    @property
+    def control_artifacts(self) -> int:
+        return sum(1 for artifact in self.artifacts if not artifact.cross_acl)
+
+    @property
+    def cross_acl_artifacts(self) -> int:
+        return len(self.artifacts) - self.control_artifacts
+
+    @property
+    def artifact_leak_percentage(self) -> float:
+        if not self.artifacts:
+            return 0.0
+        return self.artifacts_leaking_count / len(self.artifacts) * 100
+
+    @property
+    def baseline_leak_percentage(self) -> float:
+        if not self.total_restricted_canaries:
+            return 0.0
+        return len(self.baseline.leaked_canaries) / self.total_restricted_canaries * 100
 
     @property
     def baseline_passed(self) -> bool:
@@ -197,9 +238,18 @@ class LlamaIndexPipeline:
     def synthesize_workspace(
         self,
         task: str = DEFAULT_SYNTHESIS_TASK,
+        source_documents: Sequence[str] | None = None,
     ) -> tuple[str, list[str]]:
+        documents = self.documents
+        if source_documents is not None:
+            allowed = set(source_documents)
+            documents = [
+                document
+                for document in self.documents
+                if document.id_ in allowed
+            ]
         summary_index = SummaryIndex(
-            nodes=self.documents,
+            nodes=documents,
             show_progress=False,
         )
         summary_engine = summary_index.as_query_engine(
@@ -207,10 +257,39 @@ class LlamaIndexPipeline:
             response_mode="tree_summarize",
         )
         response = summary_engine.query(task)
-        source_documents = self._document_names(
+        lineage = self._document_names(
             [node.node for node in response.source_nodes]
         )
-        return str(response), source_documents
+        return str(response), lineage
+
+    def synthesize_task(self, task: SynthesisTask) -> DerivedArtifact:
+        summary, source_documents = self.synthesize_workspace(
+            task=task.task,
+            source_documents=resolve_task_sources(
+                task, self.evaluator.documents
+            ),
+        )
+        return DerivedArtifact(
+            artifact_id=task.artifact_id,
+            task=task.task,
+            summary=summary,
+            source_documents=source_documents,
+            cross_acl=is_cross_acl(task),
+        )
+
+    def synthesize_tasks(
+        self,
+        tasks: Sequence[SynthesisTask] = DEFAULT_SYNTHESIS_TASKS,
+    ) -> list[DerivedArtifact]:
+        """Run the configured scoped synthesis tasks in sequence."""
+        return [self.synthesize_task(task) for task in tasks]
+
+    def synthesize_workspaces(
+        self,
+        tasks: Sequence[SynthesisTask] = DEFAULT_SYNTHESIS_TASKS,
+    ) -> list[DerivedArtifact]:
+        """Backward-compatible alias for scoped task synthesis."""
+        return self.synthesize_tasks(tasks)
 
     def build_derived_index(
         self,
@@ -235,17 +314,60 @@ class LlamaIndexPipeline:
             show_progress=False,
         )
 
+    def build_combined_derived_index(
+        self,
+        artifacts: Sequence[DerivedArtifact | tuple[str, Sequence[str]]],
+    ) -> VectorStoreIndex:
+        derived_documents: list[Document] = []
+        for item in artifacts:
+            if isinstance(item, DerivedArtifact):
+                artifact_id = item.artifact_id
+                summary = item.summary
+                source_documents = item.source_documents
+                task = item.task
+            else:
+                summary, source_documents = item
+                artifact_id = "llamaindex-derived::" + hashlib.sha256(
+                    summary.encode("utf-8")
+                ).hexdigest()[:16]
+                task = ""
+            derived_documents.append(
+                Document(
+                    text=summary,
+                    id_=artifact_id,
+                    metadata={
+                        "artifact_id": artifact_id,
+                        "task": task,
+                        "created_by": "llamaindex-summary-agent",
+                        "source_documents": list(source_documents),
+                    },
+                )
+            )
+        return VectorStoreIndex(
+            nodes=derived_documents,
+            embed_model=self.embed_model,
+            show_progress=False,
+        )
+
     def run_exploit(
         self,
         query: str = DEFAULT_BASELINE_QUERY,
         user: UserPersona = BOB,
         derived_index: VectorStoreIndex | None = None,
+        similarity_top_k: int | None = None,
     ) -> tuple[AuditResult, list[Any]]:
         if derived_index is None:
             summary, source_documents = self.synthesize_workspace()
             derived_index = self.build_derived_index(summary, source_documents)
 
-        retriever = derived_index.as_retriever(similarity_top_k=1)
+        if similarity_top_k is None:
+            similarity_top_k = max(
+                1,
+                len(getattr(derived_index.docstore, "docs", {})),
+            )
+        retriever = derived_index.as_retriever(
+            similarity_top_k=similarity_top_k,
+        )
         query_engine = RetrieverQueryEngine.from_args(
             retriever=retriever,
             llm=self.llm,
@@ -271,11 +393,29 @@ class LlamaIndexPipeline:
         )
         return result, source_nodes
 
+    def public_document_count(self) -> int:
+        return len(public_document_names(self.evaluator.documents))
+
+    def restricted_document_count(self) -> int:
+        return len(self.evaluator.documents) - self.public_document_count()
+
     def total_restricted_canaries(self) -> int:
         return sum(
             len(document.canary_tokens)
             for document in self.evaluator.documents.values()
             if document.classification == "RESTRICTED"
+        )
+
+    def _audit_artifact(
+        self,
+        artifact: DerivedArtifact,
+        user: UserPersona,
+    ) -> AuditResult:
+        return self.evaluator.evaluate_derived_context(
+            query=artifact.task,
+            user=user,
+            source_doc_filenames=artifact.source_documents,
+            synthesized_text=artifact.summary,
         )
 
     def build_result(
@@ -284,28 +424,48 @@ class LlamaIndexPipeline:
         baseline_nodes: list[Any],
         exploit: AuditResult,
         exploit_nodes: list[Any],
-        summary: str,
+        artifacts: Sequence[DerivedArtifact],
     ) -> LlamaIndexRunResult:
+        artifact_list = list(artifacts)
+        artifact_audits = [
+            self._audit_artifact(artifact, exploit.persona)
+            for artifact in artifact_list
+        ]
         return LlamaIndexRunResult(
             baseline=baseline,
             exploit=exploit,
-            derived_summary=summary,
+            artifacts=artifact_list,
+            artifact_audits=artifact_audits,
             baseline_nodes=baseline_nodes,
             exploit_nodes=exploit_nodes,
             ingested_documents=len(self.documents),
+            public_documents=self.public_document_count(),
+            restricted_documents=self.restricted_document_count(),
             total_restricted_canaries=self.total_restricted_canaries(),
             leaked_canary_count=len(exploit.leaked_canaries),
+            artifacts_leaking_count=sum(
+                1
+                for audit in artifact_audits
+                if audit.privilege_escalation_detected
+            ),
         )
 
-    def run(self) -> LlamaIndexRunResult:
-        baseline, baseline_nodes = self.run_baseline()
-        summary, source_documents = self.synthesize_workspace()
-        derived_index = self.build_derived_index(summary, source_documents)
-        exploit, exploit_nodes = self.run_exploit(derived_index=derived_index)
+    def run(
+        self,
+        user: UserPersona = BOB,
+        baseline_user: UserPersona = ALICE,
+    ) -> LlamaIndexRunResult:
+        baseline, baseline_nodes = self.run_baseline(user=baseline_user)
+        artifacts = self.synthesize_tasks()
+        derived_index = self.build_combined_derived_index(artifacts)
+        exploit, exploit_nodes = self.run_exploit(
+            user=user,
+            derived_index=derived_index,
+        )
         return self.build_result(
             baseline=baseline,
             baseline_nodes=baseline_nodes,
             exploit=exploit,
             exploit_nodes=exploit_nodes,
-            summary=summary,
+            artifacts=artifacts,
         )

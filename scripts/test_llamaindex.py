@@ -22,7 +22,7 @@ def main() -> None:
     console = Console()
 
     with console.status(
-        "[cyan]Loading and indexing 12 documents with LlamaIndex...",
+        "[cyan]Loading and indexing 24 documents with LlamaIndex...",
         spinner="dots",
     ):
         pipeline = LlamaIndexPipeline(acl_path=str(ACL_PATH))
@@ -37,8 +37,8 @@ def main() -> None:
         "[cyan]Scenario B: running SummaryIndex workspace synthesis...",
         spinner="dots",
     ):
-        summary, source_documents = pipeline.synthesize_workspace()
-        derived_index = pipeline.build_derived_index(summary, source_documents)
+        artifacts = pipeline.synthesize_workspaces()
+        derived_index = pipeline.build_combined_derived_index(artifacts)
 
     with console.status(
         "[cyan]Scenario B: querying the unpermissioned derived index...",
@@ -51,11 +51,11 @@ def main() -> None:
         baseline_nodes=baseline_nodes,
         exploit=exploit,
         exploit_nodes=exploit_nodes,
-        summary=summary,
+        artifacts=artifacts,
     )
 
     console.print(
-        "\n[bold]Derived summary written to shared agent memory:[/bold]\n"
+        "\n[bold]Derived summaries written to shared agent memory:[/bold]\n"
         f"{result.derived_summary}\n"
     )
     render_llamaindex_report(result, output=console)

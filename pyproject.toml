@@ -1,8 +1,9 @@
 [project]
 name = "sentinel-eval"
 version = "0.1.0"
-description = "Add your description here"
+description = "Deterministic benchmark and linter for derived context ACL leaks in agent memory."
 readme = "README.md"
+license = "Apache-2.0"
 authors = [
     { name = "Harish Balasubramanian", email = "harishbala153@gmail.com" }
 ]

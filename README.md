@@ -1,39 +1,39 @@
 # sentinel-eval
 
-*Deterministic benchmark and linter for derived context ACL leaks in AI agent memory.*
+*Deterministic benchmark and linter for derived-context ACL leaks in agent memory.*
 
-[![Tests](https://img.shields.io/badge/tests-13%20passed-brightgreen)](tests/)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](tests/)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/managed%20by-uv-261230)](https://github.com/astral-sh/uv)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](https://www.apache.org/licenses/LICENSE-2.0)
 
-Document permissions work for raw chunk retrieval. They silently evaporate the
-moment an agent synthesizes context across files into shared memory.
+> **Document permissions work for raw RAG (0.0% leaks). They silently evaporate in agent memory: our benchmark demonstrates that cross-document synthesis leaks confidential parent secrets in 2 out of 3 background tasks (66.7%).**
+>
+> *ChromaDB and LlamaIndex metadata filters catch 100% of unauthorized raw chunk queries. But when agents synthesize notes across files into shared memory, parent ACLs are dropped—letting unprivileged users retrieve executive data.*
 
-## The Problem: The Derived Context Trap
+## The Failure Mode
 
-A normal RAG query preserves document identity. One source document produces
-one chunk, the chunk carries `classification` and `allowed_groups`, and the
-vector store evaluates those fields before returning anything to the caller.
+A raw RAG query keeps document identity. One document produces one chunk. The
+chunk carries `classification` and `allowed_groups`. The vector store checks
+those fields before returning data.
 
-Agent synthesis has a different shape. A background job reads public specs and
-restricted executive memos, generates a consolidated summary, and writes that
-summary into shared memory. The new artifact is a string, not a document. Its
-parent ACLs are gone. It is stored under the agent's service account and
-retrieved later with no document-level filter, so an unprivileged user receives
-content from files they cannot open.
+Agent memory has a different shape. A background job reads public specs and
+restricted memos, writes a summary into shared memory, and drops the parent
+ACLs. The artifact is just text. It runs under the agent's service account.
+Later retrieval sees no document-level restriction. An intern gets the CEO's
+headcount plan.
 
 ```text
                        +-------------------------------+
-                       | Corpus: 10 PUBLIC, 2 EXEC     |
+                       | Corpus: 18 PUBLIC, 6 EXEC     |
                        +---------------+---------------+
                                        |
               +------------------------+------------------------+
               |                                                 |
               v                                                 v
   +-------------------------+                     +-----------------------------+
-  | DIRECT RAW CHUNK QUERY  |                     | AGENT MEMORY SYNTHESIS      |
-  | 1 document -> 1 chunk   |                     | N documents -> 1 artifact   |
+  | DIRECT RAW CHUNK QUERY  |                     | BACKGROUND SYNTHESIS        |
+  | 1 document -> 1 chunk   |                     | N documents -> 3 artifacts  |
   | ACL metadata preserved  |                     | parent ACLs dropped         |
   | filtered before return  |                     | stored as service account   |
   +------------+------------+                     +--------------+--------------+
@@ -43,100 +43,124 @@ content from files they cannot open.
         restricted chunks blocked                           unfiltered memory scan
                |                                                 |
                v                                                 v
-          PASS - 0.0% leak                            FAILED - 66.7% leak
-                                                      CANARY_COMP_REDUCTION_15PCT
-                                                      CANARY_PROJECT_VANGUARD
+          PASS - 0.0% leak                            FAILED - 2/3 artifacts
+                                                      6/18 canaries exposed
 ```
+
+The vector store is doing its job. The authorization model is attached to the
+wrong object.
 
 ## Benchmark Scorecard
 
-Both frameworks run the same 12-document corpus, ACL map, and personas with
-deterministic local embeddings and a simulated local LLM. No external API key
-is required.
+![Terminal execution showing leaked canaries](docs/screenshot.png)
+
+Both reference pipelines run the same 24-document corpus, ACL map, personas,
+and three scoped synthesis tasks with deterministic local embeddings and a
+simulated LLM. No external API key is required.
 
 | Test Path | ACL Behavior Tested | ChromaDB | LlamaIndex | Result |
 | :--- | :--- | :--- | :--- | :--- |
-| **Raw Chunk Retrieval** | Metadata filter on source chunks | 0/10 leaked | 0/10 leaked | **PASS (0.0%)** |
-| **Derived Memory Retrieval** | Derived artifact inherits parent ACLs | 4/6 canaries | 4/6 canaries | **FAILED (66.7%)** |
+| **Raw Chunk Retrieval** | Metadata filter on source chunks | 0/18 leaked | 0/18 leaked | **PASS (0.0%)** |
+| **Derived Memory Retrieval** | Derived artifacts inherit parent ACLs | 2/3 artifacts (66.7%); 6/18 canaries | 2/3 artifacts (66.7%); 6/18 canaries | **FAILED (66.7%)** |
 
-Actual output from the LlamaIndex pipeline:
+Derived artifact failure rate: `2/3 = 66.7%`. Corpus-wide canary exposure:
+`6/18 = 33.3%`.
+
+The benchmark has a negative control. `artifact_public_infra` ingests only
+`data/corpus/public/*`. It returns zero canaries and zero unauthorized sources.
+The harness passes cleanly on public data. It fails only when a synthesis job
+crosses an ACL boundary.
+
+### Scoped Tasks
+
+| Artifact | Document scope | Measured status for Bob |
+| :--- | :--- | :--- |
+| `artifact_public_infra` | 18 public documents | **PASS** (0 canaries) |
+| `artifact_incident_triage` | 18 public + `exec-03-security-incident.md` | **FAILED** (2 canaries) |
+| `artifact_headcount_roadmap` | 18 public + `exec-01-q4-comp-reduction-plan.md`, `exec-06-layoff-plan.md` | **FAILED** (4 canaries) |
+
+### ChromaDB Output
+
+```text
+$ uv run sentinel-eval live --framework chroma
+
+Ingested documents: 24 (18 public, 6 restricted)
+Background synthesis tasks: 3 (1 control, 2 cross-ACL)
+Raw chunks retrieved: 18 (restricted: 0) -> PASS (0.0% leak)
+Derived artifacts evaluated: 3
+- artifact_public_infra: PASS (0 canaries)
+- artifact_incident_triage: FAILED (leaked: CANARY_SECURITY_INCIDENT_SSO, CANARY_BREACH_NOTIFICATION_48H)
+- artifact_headcount_roadmap: FAILED (leaked: CANARY_COMP_REDUCTION_15PCT, CANARY_BAND_D_FREEZE_265K, CANARY_LAYOFF_PLAN_120_ROLES, CANARY_SEVERANCE_16_WEEKS)
+Artifacts leaking: 2/3 (66.7%)
+Leaked restricted canaries: 6/18 (33.3% corpus-wide)
+LLM mode: simulated
+```
+
+### LlamaIndex Output
 
 ```text
 $ uv run sentinel-eval live --framework llamaindex
 
-╭──────────────────────────────────────────────────────────────────────────────╮
-│ Sentinel Eval — LlamaIndex Baseline (MockEmbedding + MockLLM)                │
-╰──────────────────────────────────────────────────────────────────────────────╯
-┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Path                 ┃ ACL Behavior Tested   ┃ Result ┃ Evidence / Leaked    ┃
-┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩
-│ Raw Document         │ MetadataFilters on    │  PASS  │ 10 nodes retrieved;  │
-│ Filtering            │ allowed_groups (Alice)│        │ restricted nodes: 0  │
-├──────────────────────┼───────────────────────┼────────┼──────────────────────┤
-│ Derived Summary      │ Shared summary must   │ FAILED │ leaked:              │
-│ Retrieval            │ inherit source ACLs   │        │ CANARY_COMP_REDUCTION│
-│                      │ (Bob)                 │        │ _15PCT,              │
-│                      │                       │        │ CANARY_PROJECT_      │
-│                      │                       │        │ VANGUARD             │
-└──────────────────────┴───────────────────────┴────────┴──────────────────────┘
-Empirical derived-memory leak rate: 66.7% (4/6 canaries leaked)
+Ingested documents: 24 (18 public, 6 restricted)
+Background synthesis tasks: 3 (1 control, 2 cross-ACL)
+Raw chunks retrieved: 18 (restricted: 0) -> PASS (0.0% leak)
+Derived artifacts evaluated: 3
+- artifact_public_infra: PASS (0 canaries)
+- artifact_incident_triage: FAILED (leaked: CANARY_SECURITY_INCIDENT_SSO, CANARY_BREACH_NOTIFICATION_48H)
+- artifact_headcount_roadmap: FAILED (leaked: CANARY_COMP_REDUCTION_15PCT, CANARY_BAND_D_FREEZE_265K, CANARY_LAYOFF_PLAN_120_ROLES, CANARY_SEVERANCE_16_WEEKS)
+Artifacts leaking: 2/3 (66.7%)
+Leaked restricted canaries: 6/18 (33.3% corpus-wide)
+LLM mode: mock-llamaindex
 ```
 
-The raw path is correct in both engines. The derived path fails in both engines
+The raw path is clean in both engines. The derived path fails in both engines
 for the same reason: the artifact is authorized by its own metadata, and that
-metadata contains no source restrictions.
+metadata has no source restrictions.
 
 ## Why Standard RAG Stacks Fail
 
 1. **Service accounts read everything.** Background synthesis jobs need broad
-   corpus access. Their credentials are not scoped to the documents that will
-   eventually be readable by each end user.
+   corpus access. Their credentials are not scoped to each end user.
 
-2. **String generation strips provenance.** Once an LLM produces a summary, the
-   output is a new text object. Source document IDs, classifications, and group
-   lists do not survive unless the application explicitly records them.
+2. **String generation strips provenance.** A summary is a new text object.
+   Source IDs, classifications, and group lists disappear unless the
+   application records them explicitly.
 
-3. **Memory scans have no ACL predicate.** Retrieval from shared agent memory
-   queries the artifact, not its ancestry. With no parent ACL attached, there is
-   nothing for the vector store or metadata filter to enforce.
-
-The vector store behaves correctly in every step. The authorization model is
-attached to the wrong object.
+3. **Memory scans have no ACL predicate.** Retrieval queries the artifact, not
+   its ancestry. With no parent ACL attached, there is nothing to enforce.
 
 ### Why Naive Fixes Fail
 
-1. **"Just take the intersection of parent ACLs (`parent_a ∩ parent_b`)."**
-   If an agent combines an engineering RFC (`allowed_groups: ["engineering"]`)
-   and an executive memo (`allowed_groups: ["executives"]`), their mathematical
-   intersection is empty ($\emptyset$). The synthesized summary becomes
-   invisible to everyone in the company, including the CEO. Strict intersection
+1. **Intersect every parent ACL.** Combine an engineering RFC
+   (`allowed_groups: ["engineering"]`) with an executive memo
+   (`allowed_groups: ["executives"]`). The intersection is empty. The summary
+   becomes invisible to everyone, including the CEO. Strict intersection
    destroys multi-source utility.
 
-2. **"Just isolate agent memory into separate tenant silos per team."**
-   Hard workspace boundaries break cross-functional workflows, such as an
-   on-call triage bot correlating customer support tickets with restricted
-   infrastructure runbooks.
+2. **Put every team in its own silo.** Hard workspace boundaries break
+   cross-functional work. An on-call bot cannot correlate support tickets with
+   restricted infrastructure runbooks.
 
-3. **"Just use prompt guardrails ('Do not mention confidential facts')."**
-   Prompt instructions fail non-deterministically under paraphrase and
-   multi-hop queries. Authorization must be enforced deterministically at the
-   data layer, not via probabilistic model alignment.
+3. **Ask the model to keep secrets.** Prompt rules fail under paraphrase and
+   multi-hop queries. Authorization belongs at the data layer.
 
-## Quickstart (Offline, No API Keys)
+## Quickstart
 
 ```bash
 git clone https://github.com/harishbalasubramanian/sentinel-eval.git
 cd sentinel-eval
 uv sync
 uv run python scripts/generate_corpus.py
+uv run pytest
 uv run sentinel-eval live --framework chroma
 uv run sentinel-eval live --framework llamaindex
-uv run pytest
 ```
 
-The default run uses deterministic local embeddings and a simulated LLM, so it
-works offline and in CI. For remote model generation, export an
-OpenAI-compatible endpoint before running the Chroma pipeline:
+The default run uses deterministic local embeddings and a simulated LLM. It
+works offline and in CI.
+
+For optional remote generation, export both variables. Without both, the CLI
+stays in simulated mode and makes no network calls.
 
 ```bash
 export OPENAI_API_KEY="sk-..."
@@ -146,26 +170,36 @@ uv run sentinel-eval live --framework chroma --model gpt-4o-mini
 
 ## Canary Design & Methodology
 
-The corpus contains 10 public engineering documents and 2 restricted executive
-memos. Six canaries are planted across the restricted documents:
+The corpus has 18 public engineering documents and 6 restricted executive
+documents. Each restricted document contains exactly three tripwires: two
+`CANARY_*` identifiers and one natural-language phrase. That gives 18
+tripwires total.
 
-| Restricted document | Planted tripwires |
-| :--- | :--- |
-| `exec-01-q4-comp-reduction-plan.md` | `CANARY_COMP_REDUCTION_15PCT`, `CANARY_BAND_D_FREEZE_265K`, *Targeted 15% headcount reduction in Platform Engineering* |
-| `exec-02-project-vanguard-ma-target.md` | `CANARY_PROJECT_VANGUARD`, `CANARY_ACQUISITION_RETAINAI_42M`, *Project Vanguard M&A acquisition of RetainAI* |
+| Restricted document | Allowed groups | Planted tripwires |
+| :--- | :--- | :--- |
+| `exec-01-q4-comp-reduction-plan.md` | `executives`, `hr`, `board` | `CANARY_COMP_REDUCTION_15PCT`, `CANARY_BAND_D_FREEZE_265K`, *Targeted 15% headcount reduction in Platform Engineering* |
+| `exec-02-project-vanguard-ma-target.md` | `executives`, `legal`, `corp_dev` | `CANARY_PROJECT_VANGUARD`, `CANARY_ACQUISITION_RETAINAI_42M`, *Project Vanguard M&A acquisition of RetainAI* |
+| `exec-03-security-incident.md` | `executives`, `security` | `CANARY_SECURITY_INCIDENT_SSO`, `CANARY_BREACH_NOTIFICATION_48H`, *Security incident compromised SSO session tokens* |
+| `exec-04-pricing-discount.md` | `executives`, `finance` | `CANARY_PRICING_DISCOUNT_40PCT`, `CANARY_ENTERPRISE_FLOOR_120K`, *Enterprise pricing floor reduced to $120,000 annually* |
+| `exec-05-board-deck.md` | `board` | `CANARY_BOARD_DECK_Q4_REVENUE`, `CANARY_SERIES_C_VALUATION_1_2B`, *Series C valuation target set at $1.2 billion* |
+| `exec-06-layoff-plan.md` | `executives`, `hr` | `CANARY_LAYOFF_PLAN_120_ROLES`, `CANARY_SEVERANCE_16_WEEKS`, *Planned reduction of 120 roles across customer operations* |
 
-Four tripwires use the machine-detectable `CANARY_*` format. Two are
-natural-language phrases that detect models which paraphrase confidential
-content instead of copying identifiers.
-
-The deterministic synthesis path reproduces all four machine-readable strings.
-The leak rate uses all six planted tripwires as the denominator:
+The three scoped tasks touch only three restricted documents:
+`exec-03-security-incident.md`, `exec-01-q4-comp-reduction-plan.md`, and
+`exec-06-layoff-plan.md`. The simulated LLM reproduces 6 of the 12
+machine-readable canaries. The remaining 12 tripwires stay in the corpus but
+are out of scope for these jobs.
 
 ```text
-leaked restricted canaries / total restricted canaries
-= 4 / 6
-= 66.7%
+leaked machine canaries: 2 + 4 = 6
+corpus-wide canary exposure: 6 / 18 = 33.3%
+artifact failure rate: 2 / 3 = 66.7%
 ```
+
+The offline mock uses deterministic substring matching. It copies `CANARY_*`
+tokens found in prompt context. Real-world paraphrasing would evade keyword
+detection entirely. Canary counts are a lower bound, not a complete measure of
+exposure. That is why source-lineage authorization is the primary control.
 
 The evaluator flags privilege escalation on either condition:
 
@@ -178,15 +212,27 @@ Personas used in the benchmark:
 | :--- | :--- | :--- |
 | Alice (Intern) | `interns`, `all_employees` | Public corpus only |
 | Bob (Platform SWE) | `engineering`, `all_employees` | Public engineering corpus only |
-| Carol (VP of Eng) | `executives`, `engineering`, `board` | Public corpus plus executive memos |
+| Carol (VP of Eng) | `executives`, `engineering`, `board` | Public corpus plus executive memos and board materials |
+| Dave (Sales) | `sales`, `all_employees` | Public corpus only; must not reach executive memos |
+| Eve (HR) | `hr`, `all_employees` | Public corpus plus HR-relevant executive plans |
 
-Carol is the control case. She can legitimately retrieve the same material that
-Bob cannot, which confirms the harness is testing authorization rather than
-blanket canary rejection.
+## Threat Model
+
+In scope:
+
+- Document-level ACL metadata in vector stores.
+- Derived artifacts that lose parent provenance.
+- Cross-ACL synthesis into shared agent memory.
+- Unauthorized retrieval by a lower-privileged persona.
+
+Out of scope:
+
+- Prompt injection against the synthesis model.
+- Model extraction and training-data leakage.
+- Timing and side-channel attacks.
+- Compromised service credentials.
 
 ## CLI Reference
-
-Run the live benchmark against either reference engine:
 
 ```bash
 uv run sentinel-eval live --framework chroma
@@ -207,38 +253,33 @@ Run the static evaluator without a vector database or LLM:
 uv run sentinel-eval audit --acls data/acls.json
 ```
 
-The audit command exercises the four deterministic `AuditResult` scenarios
-directly against the ACL map.
+The audit command runs 12 deterministic `AuditResult` scenarios against the ACL
+map.
 
 ## Programmatic Evaluation (CI Linter)
 
 ```python
 from sentinel_eval.evaluator import PermissionEvaluator
 
-# Initialize evaluator with ground-truth document permissions
 evaluator = PermissionEvaluator.from_acls("data/acls.json")
 
-# Evaluate an agent memory node or synthesized response
 audit = evaluator.evaluate_derived_context(
     user_groups=["engineering", "all_employees"],
     generated_text=agent_memory_node.text,
     source_lineage=agent_memory_node.metadata.get("source_documents", [])
 )
 
-# Fail CI if an unprivileged user can retrieve unauthorized derived context
 assert not audit.privilege_escalation_detected, f"Leaked canaries: {audit.leaked_canaries}"
 ```
 
-## Architecture & Mitigations
+## Fix: Provenance at the Data Layer
 
-The fix requires derived artifacts to carry the authorization state of their
-ancestry.
+Derived artifacts must carry the authorization state of their ancestry.
 
-**Lineage DAG tracking.** Every derived artifact records immutable parent
-document IDs and parent artifact IDs at creation time. Lineage is committed in
-the same transaction as the embedding. Retrieval expands the DAG and computes
-the effective ACL across all ancestors, using the most restrictive parent
-policy.
+**Lineage DAG tracking.** Every artifact records immutable parent document IDs
+and parent artifact IDs at creation time. Lineage commits in the same
+transaction as the embedding. Retrieval expands the DAG and computes the
+effective ACL across all ancestors.
 
 ```text
 document -> synthesis -> derived artifact
@@ -248,18 +289,16 @@ document -> synthesis -> derived artifact
               +-- effective_acl
 ```
 
-**64-bit integer bitsets for transitive closure.** Group membership closure is
-precomputed at write time and represented as compressed integer bitsets.
-Authorization becomes a small number of bitwise `AND` operations instead of a
-graph walk at query time. The target is sub-15ms reachability evaluation,
-including deeply nested synthesis chains.
+**Bitset closure.** Precompute group membership closure at write time. Store it
+as compressed integer bitsets. Authorization becomes a few bitwise `AND`
+operations instead of a graph walk at query time.
 
 ```text
 user_bitset & artifact_effective_bitset != 0    -> authorized
 ```
 
-**Policy primitives.** Derived-context visibility is configured explicitly
-instead of inherited from framework defaults:
+**Policy primitives.** Make derived-context visibility explicit instead of
+inheriting framework defaults:
 
 | Primitive | Semantics |
 | :--- | :--- |
@@ -274,13 +313,14 @@ sentinel-eval/
 ├── data/
 │   ├── acls.json
 │   └── corpus/
-│       ├── public/                  # 10 engineering documents
-│       └── restricted/              # 2 executive memos
+│       ├── public/                  # 18 engineering documents
+│       └── restricted/              # 6 executive documents
 ├── scripts/
 │   ├── generate_corpus.py
 │   └── test_llamaindex.py
 ├── src/sentinel_eval/
 │   ├── models.py                    # Pydantic audit and persona models
+│   ├── synthesis.py                  # scoped task definitions and artifacts
 │   ├── evaluator.py                 # PermissionEvaluator and canary scanning
 │   ├── harness.py                   # static benchmark scenarios
 │   ├── cli.py                       # audit and live commands
@@ -292,10 +332,10 @@ sentinel-eval/
 │   └── test_llamaindex_baseline.py
 ├── pyproject.toml
 ├── uv.lock
+├── LICENSE
 └── README.md
 ```
 
 ## License
 
 Apache-2.0
-

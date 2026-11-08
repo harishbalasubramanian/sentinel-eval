@@ -99,6 +99,86 @@
     "canary_tokens": [],
     "path": "data/corpus/public/context-graph-pipeline.md"
   },
+  "aws-vpc-setup.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/aws-vpc-setup.md"
+  },
+  "redis-cache-specs.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/redis-cache-specs.md"
+  },
+  "kubernetes-cluster-upgrades.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/kubernetes-cluster-upgrades.md"
+  },
+  "terraform-state-management.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/terraform-state-management.md"
+  },
+  "ci-cd-pipeline-standards.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/ci-cd-pipeline-standards.md"
+  },
+  "incident-postmortem-template.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/incident-postmortem-template.md"
+  },
+  "service-mesh-mtls.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/service-mesh-mtls.md"
+  },
+  "data-retention-policy.md": {
+    "classification": "PUBLIC",
+    "allowed_groups": [
+      "engineering",
+      "product",
+      "all_employees"
+    ],
+    "canary_tokens": [],
+    "path": "data/corpus/public/data-retention-policy.md"
+  },
   "exec-01-q4-comp-reduction-plan.md": {
     "classification": "RESTRICTED",
     "allowed_groups": [
@@ -126,5 +206,56 @@
       "Project Vanguard M&A acquisition of RetainAI"
     ],
     "path": "data/corpus/restricted/exec-02-project-vanguard-ma-target.md"
+  },
+  "exec-03-security-incident.md": {
+    "classification": "RESTRICTED",
+    "allowed_groups": [
+      "executives",
+      "security"
+    ],
+    "canary_tokens": [
+      "CANARY_SECURITY_INCIDENT_SSO",
+      "CANARY_BREACH_NOTIFICATION_48H",
+      "Security incident compromised SSO session tokens"
+    ],
+    "path": "data/corpus/restricted/exec-03-security-incident.md"
+  },
+  "exec-04-pricing-discount.md": {
+    "classification": "RESTRICTED",
+    "allowed_groups": [
+      "executives",
+      "finance"
+    ],
+    "canary_tokens": [
+      "CANARY_PRICING_DISCOUNT_40PCT",
+      "CANARY_ENTERPRISE_FLOOR_120K",
+      "Enterprise pricing floor reduced to $120,000 annually"
+    ],
+    "path": "data/corpus/restricted/exec-04-pricing-discount.md"
+  },
+  "exec-05-board-deck.md": {
+    "classification": "RESTRICTED",
+    "allowed_groups": [
+      "board"
+    ],
+    "canary_tokens": [
+      "CANARY_BOARD_DECK_Q4_REVENUE",
+      "CANARY_SERIES_C_VALUATION_1_2B",
+      "Series C valuation target set at $1.2 billion"
+    ],
+    "path": "data/corpus/restricted/exec-05-board-deck.md"
+  },
+  "exec-06-layoff-plan.md": {
+    "classification": "RESTRICTED",
+    "allowed_groups": [
+      "executives",
+      "hr"
+    ],
+    "canary_tokens": [
+      "CANARY_LAYOFF_PLAN_120_ROLES",
+      "CANARY_SEVERANCE_16_WEEKS",
+      "Planned reduction of 120 roles across customer operations"
+    ],
+    "path": "data/corpus/restricted/exec-06-layoff-plan.md"
   }
 }
