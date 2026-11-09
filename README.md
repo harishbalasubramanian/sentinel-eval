@@ -7,7 +7,7 @@
 [![uv](https://img.shields.io/badge/managed%20by-uv-261230)](https://github.com/astral-sh/uv)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](https://www.apache.org/licenses/LICENSE-2.0)
 
-**Document permissions work for raw RAG (% leaks). They silently evaporate in agent memory: our benchmark demonstrates that cross-document synthesis leaks confidential parent secrets in 2 out of 3 background tasks (67%).**
+**Document permissions work for raw RAG (0% leaks). They silently evaporate in agent memory: our benchmark demonstrates that cross-document synthesis leaks confidential parent secrets in 2 out of 3 background tasks (67%).**
 >
 *ChromaDB and LlamaIndex metadata filters catch 100% of unauthorized raw chunk queries. But when agents synthesize notes across files into shared memory, parent ACLs are dropped, letting unprivileged users retrieve executive data.*
 
